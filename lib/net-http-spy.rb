@@ -1,50 +1,28 @@
-require 'net/https'
-require 'logger'
-require 'cgi'
+# frozen_string_literal: true
 
-# HTTP SPY
+require 'net/http/spy'
+
 module Net
   class HTTP
-    class << self
-      attr_accessor :http_logger
-      attr_accessor :http_logger_options
+    include Net::HTTP::Spy
+
+    alias initialize_without_spy initialize
+    alias request_without_spy request
+
+    def initialize(*, &)
+      pre_initialize(*)
+      initialize_without_spy(*, &)
+      post_initialize
     end
 
-    module Spy
-      def initialize(*args, &block)
-        self.class.http_logger_options ||= {}
-        defaults =  {:body => false, :trace => false, :verbose => false, :limit => -1}
-        self.class.http_logger_options = (self.class.http_logger_options == :default) ? defaults : self.class.http_logger_options
-        @logger_options = defaults.merge(self.class.http_logger_options)
-        @params_limit = @logger_options[:params_limit] || @logger_options[:limit]
-        @body_limit   = @logger_options[:body_limit]   || @logger_options[:limit]
+    def request(*, &)
+      pre_request(*)
+      result = request_without_spy(*, &)
+      post_request(result, *)
 
-        self.class.http_logger.info "CONNECT: #{args.inspect}" if !@logger_options[:verbose]
-
-        super
-
-        @debug_output   = self.class.http_logger if @logger_options[:verbose]
-      end
-
-      def request(*args, &block)
-        unless started? || @logger_options[:verbose]
-          req = args[0].class::METHOD
-          self.class.http_logger.info "#{req} #{args[0].path}"
-        end
-
-        result = super
-
-        unless started? || @logger_options[:verbose]
-
-          self.class.http_logger.info "PARAMS #{CGI.parse(args[0].body).inspect[0..@params_limit]} " if args[0].body && req != 'CONNECT'
-          self.class.http_logger.info "TRACE: #{caller.reverse}" if @logger_options[:trace]
-          self.class.http_logger.info "BODY: #{(@logger_options[:body] ? result.body : result.class.name)[0..@body_limit]}"
-        end
-        result
-      end
+      result
     end
   end
 end
 
-Net::HTTP.prepend Net::HTTP::Spy
 Net::HTTP.http_logger = Logger.new(STDOUT)
